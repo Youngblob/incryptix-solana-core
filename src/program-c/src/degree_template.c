@@ -36,7 +36,7 @@ extern uint64_t enroll(SolParameters *params){
   // struct Class class_appliedPhysics;
   // struct Class class_microcontrollers;
 
-  char studentName[30] = "Akshay";
+  char studentName[30] = STUDENTNAME;
 
 
   return SUCCESS;
