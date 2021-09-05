@@ -1,5 +1,4 @@
-# solana program for youngblog
+# Solana program for Incryptix
 
-it contains a test program for now
 
-source code at /src/program-c/src/helloworld/helloworld.c
+source code at /src/program-c/
