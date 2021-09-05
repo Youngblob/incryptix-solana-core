@@ -1,6 +1,8 @@
 import requests
 import json
 import html
+import subprocess
+import os
 from flask_cors import CORS, cross_origin
 from flask import Flask, render_template, request, url_for, jsonify
 app = Flask(__name__)
@@ -14,7 +16,6 @@ PRODUCTION = False
 @cross_origin()
 def registerCertificate():
 
-
     studentName = html.escape(request.json['student-name'])
     # studentName = "\"" + studentName + "\""
     certifyingAutority = html.escape(request.json['certifying-authority'])
@@ -27,14 +28,36 @@ def registerCertificate():
     file.write(contract)
     file.close()
 
-    program_id = deploy_contract()
+    result = deploy_certificate()
+    programId = result['result']
+    status_code = result['status']
+    extras["storageAccounts"] = result['storageAccounts']
+    extras["programExecutionTXHash"] = result['programExecutionTXHash']
 
     # add to DB as well
-    result = add_to_DB(program_id['result'], studentName, certifyingAutority, extras)
-    print(result)
+    print(add_to_DB(programId, studentName, certifyingAutority, extras))
 
 
-    return program_id
+    return {
+        "result": programId,
+        "status": status_code,
+        "storageAccounts": result['storageAccounts'],
+        "programExecutionTXHash": result['programExecutionTXHash']
+    }
+
+@app.route("/getCertificate", methods=['GET'])
+@cross_origin()
+def getCertificate():
+
+    programId                           = html.escape(request.json['programId'])
+    studentName_storage_pubkey          = html.escape(request.json['programId'])
+    certifyingAutority_storage_pubkey   = html.escape(request.json['programId'])
+    isCertified_storage_pubkey          = html.escape(request.json['programId'])
+
+    result = subprocess.getoutput(f"node web3_get_data.js {programId} {studentName_storage_pubkey} {certifyingAutority_storage_pubkey} {isCertified_storage_pubkey}")
+
+    return result
+
 
 @app.route("/help", methods=['GET'])
 @cross_origin()
@@ -64,44 +87,59 @@ def construct_contract(studentName, certifyingAutority):
 
     return contract
 
-def deploy_contract():
+# ToDo: Move it to a qeueu architecture
+def deploy_certificate():
 
-    # import os
-    # os.system("npm run build:program-c & solana program deploy /media/New_Volume_D/workspaces/workspace-ethereum/solana-dapps/youngblob-solana-core/dist/program/helloworld.so")
-    import subprocess
-    import os
+    result = subprocess.getoutput('rm -r ./dist')
+    result = subprocess.getoutput('npm run build:program-c')
+    result = subprocess.getoutput('solana program deploy ./dist/program/incryptix.so').split('\n')[0]
+    programId = result.split(' ')[2]
 
-    if PRODUCTION:
-        os.chdir('/home/p_s_obheroi/incryptix/solana-deploy/')
+    # validate tx and create storage accounts
+    studentName_storage_pubkey = web3_create_accounts(programId)
+    certifyingAutority_storage_pubkey = web3_create_accounts(programId)
+    isCertified_storage_pubkey = web3_create_accounts(programId)
 
-    try:
-        result = subprocess.getoutput('rm -r ./dist')
-    except:
-        pass
+    print(programId)
+    print(studentName_storage_pubkey)
+    print(certifyingAutority_storage_pubkey)
+    print(isCertified_storage_pubkey)
 
-    if PRODUCTION:
-        result = subprocess.getoutput('V=1 make -C ./src/program-c helloworld')
-    else:
-        result = subprocess.getoutput('npm run build:program-c')
+    programExecutionTXHash = web3_execute_program(programId, studentName_storage_pubkey, certifyingAutority_storage_pubkey, isCertified_storage_pubkey)
 
-    # V=1 make -C /home/p_s_obheroi/incryptix/solana-deploy/src/program-c helloworld
-    result = subprocess.getoutput('solana program deploy ./dist/program/helloworld.so').split('\n')[0]
-    program_id = result.split(' ')[2]
-
-    # if len(program_id) != 44:
+    # if len(programId) != 44:
     #     status_code = 400
     # else:
     #     status_code = 200
     status_code = 200
 
-    return {"result": program_id, "status": status_code}
+    return {
+        "result": programId,
+        "status": status_code,
+        "storageAccounts": {
+            "studentName": studentName_storage_pubkey,
+            "certifyingAutority": certifyingAutority_storage_pubkey,
+            "isCertified": isCertified_storage_pubkey
+        },
+        "programExecutionTXHash": programExecutionTXHash
+    }
 
-def add_to_DB(program_id, studentName, certifyingAutority, extras):
+def web3_create_accounts(programId):
 
-    #studentName = studentName.split('"')[1]
-    #certifyingAutority = certifyingAutority.split('"')[1]
+    result = subprocess.getoutput('node web3_create_accounts.js '+programId)
 
-    url = "https://proxy.incryptix.workers.dev/v1/add/"+program_id+"/"
+    return result
+
+def web3_execute_program(programId, studentName_storage_pubkey, certifyingAutority_storage_pubkey, isCertified_storage_pubkey):
+
+    result = subprocess.getoutput(f"node web3_create_accounts.js {programId} {studentName_storage_pubkey} {certifyingAutority_storage_pubkey} {isCertified_storage_pubkey}")
+
+    return result
+
+# just in case
+def add_to_DB(programId, studentName, certifyingAutority, extras):
+
+    url = "https://proxy.incryptix.workers.dev/v1/add/"+programId+"/"
     myobj = json.dumps({"studentName": studentName, "certifyingAutority": certifyingAutority, "isCertified": False, "extras": extras})
     headers = {"Content-Type": "application/json", "X-Global-Auth": "parmurocks"}
 
